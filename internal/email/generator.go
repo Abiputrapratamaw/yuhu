@@ -1,9 +1,11 @@
 package email
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -19,13 +21,52 @@ import (
 	"github.com/verssache/chatgpt-creator/internal/util"
 )
 
-var blacklistedDomains sync.Map
+var (
+	blacklistedDomains sync.Map
+	blacklistMutex     sync.Mutex
+)
+
+func init() {
+	data, err := os.ReadFile("blacklist.json")
+	if err != nil {
+		return // File might not exist yet
+	}
+
+	var domains []string
+	if err := json.Unmarshal(data, &domains); err != nil {
+		return
+	}
+
+	for _, domain := range domains {
+		blacklistedDomains.Store(domain, true)
+	}
+}
+
+func saveBlacklist() {
+	blacklistMutex.Lock()
+	defer blacklistMutex.Unlock()
+
+	var domains []string
+	blacklistedDomains.Range(func(key, value any) bool {
+		if domain, ok := key.(string); ok {
+			domains = append(domains, domain)
+		}
+		return true
+	})
+
+	data, err := json.MarshalIndent(domains, "", "  ")
+	if err != nil {
+		return
+	}
+
+	_ = os.WriteFile("blacklist.json", data, 0644)
+}
 
 // AddBlacklistDomain adds a domain to the global blacklist.
 func AddBlacklistDomain(domain string) {
 	blacklistedDomains.Store(domain, true)
+	saveBlacklist()
 }
-
 // CreateTempEmail fetches a new temp email using a random profile and gofakeit names.
 func CreateTempEmail(defaultDomain string) (string, error) {
 	// If defaultDomain is set, skip fetching from generator.email
